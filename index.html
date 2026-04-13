@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sesión de Seguimiento PCA™ | Talento Impulsa Consulting</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{background:#f0f4fa;font-family:'DM Sans',sans-serif}
+    input,textarea,select{font-family:'DM Sans',sans-serif}
+    textarea:focus,input:focus,select:focus{border-color:#0f766e!important;box-shadow:0 0 0 3px rgba(15,118,110,.12)!important;outline:none}
+    ::-webkit-scrollbar{width:6px}::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:99px}
+    .nav-pill:hover{background:#f0fdf9!important;transform:translateY(-1px)}
+    .nav-pill{transition:all .15s ease}
+    .score-btn{transition:all .15s;cursor:pointer}.score-btn:hover{transform:scale(1.08)}
+    .ghost-btn{transition:all .2s;cursor:pointer}.ghost-btn:hover{opacity:.88;transform:translateY(-1px)}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    .fade-in{animation:fadeIn .4s ease forwards}
+    @keyframes shimmer{0%,100%{box-shadow:0 4px 20px rgba(15,118,110,.15)}50%{box-shadow:0 6px 28px rgba(15,118,110,.32)}}
+    .shimmer-card{animation:shimmer 2.5s ease-in-out infinite}
+    .modal-overlay{position:fixed;inset:0;background:rgba(15,23,42,.6);z-index:1000;display:flex;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(4px)}
+    .modal{background:#fff;border-radius:20px;padding:36px;max-width:500px;width:100%;box-shadow:0 24px 60px rgba(0,0,0,.25)}
+    @keyframes deltaUp{from{transform:translateY(4px);opacity:0}to{transform:translateY(0);opacity:1}}
+    .delta-anim{animation:deltaUp .5s ease forwards}
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo, useCallback } = React;
+const XLSX_LIB = window.XLSX;
+
+/* ─── TEAL palette (diferente a la auditoría) ── */
+const TEAL = "#0f766e";
+const TEAL_DARK = "#0d5c56";
+const TEAL_LIGHT = "#f0fdf9";
+const GOLD = "#D4AF37";
+
+/* ─── CATEGORÍAS (mismas 5) ─────────────────── */
+const CATEGORIES = [
+  {id:"tiempo",    label:"Gestión del Tiempo",    color:"#2E5090", light:"#EEF3FB", icon:"⏱"},
+  {id:"procesos",  label:"Procesos Operativos",   color:"#1a6e4a", light:"#EEF7F2", icon:"⚙️"},
+  {id:"comunicacion",label:"Comunicación",        color:"#7B3F9E", light:"#F5EEFC", icon:"💬"},
+  {id:"documental",label:"Gestión Documental",    color:"#A0521C", light:"#FDF3EC", icon:"📂"},
+  {id:"decisiones",label:"Toma de Decisiones",    color:"#B5860D", light:"#FDF8EC", icon:"🎯"},
+];
+
+/* ─── PREGUNTAS DE SEGUIMIENTO ───────────────── */
+/* Mismas categorías, preguntas reorientadas a evolución */
+const FOLLOWUP_QUESTIONS = {
+  tiempo:[
+    {id:"ft1", text:"¿Cuántas horas semanales dedicás ahora a responder emails? (comparado con antes)", type:"open"},
+    {id:"ft2", text:"¿Disminuyó la cantidad de reuniones improductivas?", type:"sinoparcial"},
+    {id:"ft3", text:"¿Estás usando algún sistema de priorización de tareas de forma consistente?", type:"sinoparcial"},
+    {id:"ft4", text:"¿Con qué frecuencia te sentís abrumado por los pendientes actualmente?", type:"frecuencia"},
+    {id:"ft5", text:"¿Encontrás la información que necesitás más rápido que antes?", type:"sinoparcial"},
+  ],
+  procesos:[
+    {id:"fp1", text:"¿Automatizaste o sistematizaste alguna tarea repetitiva desde la auditoría?", type:"sinoparcial"},
+    {id:"fp2", text:"¿Documentaste algún proceso que antes hacías de memoria?", type:"sinoparcial"},
+    {id:"fp3", text:"¿Reduciste el tiempo invertido en tareas manuales repetitivas?", type:"sinoparcial"},
+    {id:"fp4", text:"¿Siguen existiendo los mismos cuellos de botella que se detectaron?", type:"frecuencia_inv"},
+    {id:"fp5", text:"¿Disminuyó la frecuencia con la que tenés que rehacer trabajo?", type:"sinoparcial"},
+  ],
+  comunicacion:[
+    {id:"fc1", text:"¿Reduciste el tiempo de redacción de emails e informes?", type:"sinoparcial"},
+    {id:"fc2", text:"¿Estás usando plantillas o prompts para comunicaciones frecuentes?", type:"sinoparcial"},
+    {id:"fc3", text:"¿Bajó la cantidad de veces que reescribís comunicados por tono inadecuado?", type:"sinoparcial"},
+    {id:"fc4", text:"¿Recibiste menos quejas o comentarios por comunicaciones poco claras?", type:"sinoparcial"},
+    {id:"fc5", text:"¿Con qué frecuencia usás IA para redactar o mejorar comunicaciones?", type:"frecuencia"},
+  ],
+  documental:[
+    {id:"fd1", text:"¿Tardás menos tiempo en leer y procesar documentos extensos?", type:"sinoparcial"},
+    {id:"fd2", text:"¿Implementaste algún sistema de archivo o búsqueda de documentos?", type:"sinoparcial"},
+    {id:"fd3", text:"¿Necesitás releer documentos por falta de síntesis con menos frecuencia?", type:"sinoparcial"},
+    {id:"fd4", text:"¿Lograste organizar mejor la información dispersa de múltiples fuentes?", type:"sinoparcial"},
+    {id:"fd5", text:"¿Usás IA para resumir o extraer información clave de documentos?", type:"sinoparcial"},
+  ],
+  decisiones:[
+    {id:"fdec1", text:"¿Tenés criterios más claros para delegar vs hacer vos mismo?", type:"sinoparcial"},
+    {id:"fdec2", text:"¿Sistematizaste alguna decisión operativa repetitiva?", type:"sinoparcial"},
+    {id:"fdec3", text:"¿Seguís postergando decisiones por falta de información estructurada?", type:"frecuencia_inv"},
+    {id:"fdec4", text:"¿Usás alguna herramienta o criterio para priorizar proyectos?", type:"sinoparcial"},
+    {id:"fdec5", text:"¿Reduciste el tiempo que trabajás en urgente-no-importante?", type:"sinoparcial"},
+  ],
+};
+
+/* frecuencia_inv = escala invertida (Siempre=malo, Nunca=bueno) igual que el original */
+const FRECUENCIA = ["Nunca","Rara vez","A veces","Frecuentemente","Siempre"];
+const SINOPARCIAL = ["No","Parcial","Sí"];
+const SCORE_LABELS = ["","Crítico","Débil","Medio","Bueno","Óptimo"];
+
+/* ─── DELTA LOGIC ────────────────────────────── */
+function getDelta(prev, curr) {
+  if (!prev || !curr) return null;
+  return curr - prev;
+}
+
+function deltaLabel(d) {
+  if (d === null) return null;
+  if (d > 4)  return { text:`+${d} pts ↑↑`, color:"#16a34a", bg:"#dcfce7", icon:"🚀" };
+  if (d > 0)  return { text:`+${d} pts ↑`,  color:"#16a34a", bg:"#dcfce7", icon:"📈" };
+  if (d === 0)return { text:`Sin cambio →`,  color:"#d97706", bg:"#fef3c7", icon:"➡️" };
+  return        { text:`${d} pts ↓`,         color:"#dc2626", bg:"#fee2e2", icon:"⚠️" };
+}
+
+function getNextStep(prevTotal, currTotal, catDeltas) {
+  const prevPct = prevTotal / 125;
+  const currPct = currTotal / 125;
+  const improvement = currPct - prevPct;
+  const stagnant = Object.values(catDeltas).filter(d => d !== null && d <= 0).length;
+  const regressions = Object.values(catDeltas).filter(d => d !== null && d < 0).length;
+
+  if (currPct >= 0.80) {
+    return {
+      icon:"🏆", color:"#16a34a", bg:"#f0fdf4",
+      title:"Cierre exitoso del proceso",
+      desc:"El cliente alcanzó un nivel de eficiencia muy alto. El sistema PCA™ está consolidado. Se recomienda cerrar el proceso formal y ofrecer un mantenimiento trimestral o la incorporación de un nuevo desafío de mayor complejidad.",
+      accion:"Proponer: Pack de Mantenimiento PCA™ o escalar a Mentoría Estratégica",
+    };
+  }
+  if (improvement >= 0.20 && currPct >= 0.65) {
+    return {
+      icon:"⬆️", color:"#0f766e", bg:"#f0fdf9",
+      title:"Escalar al siguiente nivel",
+      desc:"La mejora es sólida y el cliente tiene base para dar el siguiente paso. Es el momento ideal para proponer un pack de mayor profundidad que trabaje las áreas que aún están en desarrollo.",
+      accion:"Proponer: Mentoría Estratégica 1:1 o Pack Digital Equipo",
+    };
+  }
+  if (improvement >= 0.10 && stagnant <= 2) {
+    return {
+      icon:"🔄", color:"#2E5090", bg:"#EEF3FB",
+      title:"Continuar y profundizar",
+      desc:"Hay mejora clara pero queda recorrido importante. Se recomienda continuar con el pack actual, identificar los 1-2 sistemas que aún no se implementaron y hacer foco en ellos en la próxima sesión.",
+      accion:"Continuar pack actual · Fijar nueva sesión de seguimiento en 30 días",
+    };
+  }
+  if (regressions >= 2) {
+    return {
+      icon:"🛠️", color:"#dc2626", bg:"#fef2f2",
+      title:"Revisión de implementación urgente",
+      desc:"Se detectan retrocesos en varias áreas. Esto generalmente indica que los sistemas no se están usando en el día a día. Se necesita una sesión de revisión de hábitos de implementación antes de avanzar.",
+      accion:"Sesión de revisión de implementación · Identificar obstáculos concretos",
+    };
+  }
+  return {
+    icon:"💬", color:"#d97706", bg:"#fffbeb",
+    title:"Reforzar implementación",
+    desc:"La mejora es moderada. El cliente tiene el conocimiento pero necesita más acompañamiento en la aplicación práctica. Se recomienda una sesión de implementación asistida antes del próximo seguimiento.",
+    accion:"Sesión de implementación práctica · Follow-up en 15 días",
+  };
+}
+
+/* ─── COMPONENTS ─────────────────────────────── */
+function ScoreBtn({value, selected, color, onClick}) {
+  return (
+    <button className="score-btn" onClick={()=>onClick(value)} style={{
+      width:50, padding:"7px 0", borderRadius:8,
+      border: selected?`2px solid ${color}`:"2px solid #e2e8f0",
+      background: selected?color:"#fff", color: selected?"#fff":"#64748b",
+      fontWeight:700, boxShadow: selected?`0 2px 8px ${color}44`:"none",
+      display:"flex", flexDirection:"column", alignItems:"center", gap:2,
+    }}>
+      <span style={{fontSize:17}}>{value}</span>
+      <span style={{fontSize:8.5,opacity:.85}}>{SCORE_LABELS[value]}</span>
+    </button>
+  );
+}
+
+function QuestionCard({question, catColor, catLight, answers, onChange}) {
+  const ans = answers[question.id] || {};
+  return (
+    <div style={{background:"#fff",borderRadius:12,padding:"15px 17px",marginBottom:11,
+      border:"1px solid #e8edf5",borderLeft:`4px solid ${catColor}`,boxShadow:"0 1px 4px rgba(0,0,0,0.05)"}}>
+      <p style={{margin:"0 0 11px",fontSize:14,color:"#1e293b",lineHeight:1.55,fontWeight:500}}>{question.text}</p>
+      <div style={{display:"flex",gap:11,flexWrap:"wrap",alignItems:"flex-start"}}>
+        <div style={{flex:"1 1 210px",minWidth:170}}>
+          <label style={{fontSize:10,color:"#94a3b8",fontWeight:700,letterSpacing:.6,textTransform:"uppercase"}}>Respuesta</label>
+          {(question.type==="frecuencia"||question.type==="frecuencia_inv") ? (
+            <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:6}}>
+              {FRECUENCIA.map(opt=>(
+                <button key={opt} onClick={()=>onChange(question.id,"respuesta",opt)} style={{
+                  padding:"4px 9px",borderRadius:20,cursor:"pointer",fontSize:11.5,fontWeight:600,transition:"all .12s",
+                  border:ans.respuesta===opt?`2px solid ${catColor}`:"1.5px solid #e2e8f0",
+                  background:ans.respuesta===opt?catLight:"#fff",color:ans.respuesta===opt?catColor:"#64748b",
+                }}>{opt}</button>
+              ))}
+            </div>
+          ):question.type==="sinoparcial"?(
+            <div style={{display:"flex",gap:7,marginTop:6}}>
+              {SINOPARCIAL.map(opt=>(
+                <button key={opt} onClick={()=>onChange(question.id,"respuesta",opt)} style={{
+                  padding:"5px 16px",borderRadius:20,cursor:"pointer",fontSize:12,fontWeight:700,transition:"all .12s",
+                  border:ans.respuesta===opt?`2px solid ${catColor}`:"1.5px solid #e2e8f0",
+                  background:ans.respuesta===opt?catColor:"#fff",color:ans.respuesta===opt?"#fff":"#64748b",
+                }}>{opt}</button>
+              ))}
+            </div>
+          ):(
+            <textarea rows={2} value={ans.respuesta||""} onChange={e=>onChange(question.id,"respuesta",e.target.value)}
+              placeholder="Contá qué cambió..." style={{
+                width:"100%",marginTop:6,padding:"7px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",
+                fontSize:13,resize:"vertical",color:"#1e293b"}}/>
+          )}
+        </div>
+        <div style={{flexShrink:0}}>
+          <label style={{fontSize:10,color:"#94a3b8",fontWeight:700,letterSpacing:.6,textTransform:"uppercase"}}>Puntaje actual</label>
+          <div style={{display:"flex",gap:5,marginTop:6}}>
+            {[1,2,3,4,5].map(v=><ScoreBtn key={v} value={v} selected={ans.puntaje===v} color={catColor} onClick={val=>onChange(question.id,"puntaje",val)}/>)}
+          </div>
+        </div>
+        <div style={{flex:"1 1 130px",minWidth:120}}>
+          <label style={{fontSize:10,color:"#94a3b8",fontWeight:700,letterSpacing:.6,textTransform:"uppercase"}}>Notas</label>
+          <textarea rows={2} value={ans.notas||""} onChange={e=>onChange(question.id,"notas",e.target.value)}
+            placeholder="Detalle, contexto..." style={{
+              width:"100%",marginTop:6,padding:"7px 9px",borderRadius:8,border:"1.5px dashed #cbd5e1",
+              fontSize:11.5,resize:"vertical",color:"#475569",background:"#fafbfd"}}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ComparisonBar({label, icon, prev, curr, color}) {
+  const prevPct = prev != null ? (prev/25)*100 : null;
+  const currPct = (curr/25)*100;
+  const delta = getDelta(prev, curr);
+  const dl = deltaLabel(delta);
+
+  return (
+    <div style={{marginBottom:20}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:7}}>
+        <span style={{fontSize:13,fontWeight:600,color:"#1e293b"}}>{icon} {label}</span>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          {dl && (
+            <span className="delta-anim" style={{fontSize:11,fontWeight:700,padding:"2px 10px",borderRadius:20,
+              background:dl.bg, color:dl.color}}>{dl.icon} {dl.text}</span>
+          )}
+          <span style={{fontSize:11.5,color:"#64748b"}}>{prev != null ? `${prev}→${curr}` : `${curr}/25`}</span>
+        </div>
+      </div>
+      {/* Barra anterior */}
+      {prevPct != null && (
+        <div style={{marginBottom:5}}>
+          <div style={{fontSize:10,color:"#94a3b8",marginBottom:3,fontWeight:600}}>DIAGNÓSTICO INICIAL</div>
+          <div style={{height:6,background:"#f1f5f9",borderRadius:99}}>
+            <div style={{height:"100%",width:`${prevPct}%`,background:"#94a3b8",borderRadius:99,transition:"width .7s"}}/>
+          </div>
+        </div>
+      )}
+      {/* Barra actual */}
+      <div>
+        <div style={{fontSize:10,color:TEAL,marginBottom:3,fontWeight:700}}>SEGUIMIENTO ACTUAL</div>
+        <div style={{height:9,background:"#f1f5f9",borderRadius:99}}>
+          <div style={{height:"100%",width:`${currPct}%`,
+            background: currPct/100>=0.7?"#22c55e":currPct/100>=0.4?"#f59e0b":"#ef4444",
+            borderRadius:99,transition:"width .7s cubic-bezier(.4,0,.2,1)"}}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClearModal({onConfirm, onCancel}) {
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:40,textAlign:"center",marginBottom:14}}>🗂️</div>
+        <h2 style={{textAlign:"center",fontFamily:"'Cormorant Garamond',serif",color:"#0d5c56",fontSize:22,marginBottom:10}}>¿Nueva sesión de seguimiento?</h2>
+        <p style={{textAlign:"center",color:"#64748b",fontSize:13.5,lineHeight:1.65,marginBottom:26}}>
+          Se borrarán todos los datos actuales.<br/>
+          <strong style={{color:"#374151"}}>Esta acción no se puede deshacer.</strong>
+        </p>
+        <div style={{display:"flex",gap:12}}>
+          <button onClick={onCancel} style={{flex:1,padding:"11px",borderRadius:10,border:"1.5px solid #e2e8f0",background:"#fff",color:"#475569",fontSize:14,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+          <button onClick={onConfirm} style={{flex:1,padding:"11px",borderRadius:10,border:"none",background:"linear-gradient(135deg,#dc2626,#b91c1c)",color:"#fff",fontSize:14,fontWeight:700,cursor:"pointer"}}>Sí, nueva sesión</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── MAIN APP ───────────────────────────────── */
+function App() {
+  /* Datos del cliente */
+  const [clientName,  setClientName]  = useState("");
+  const [industry,    setIndustry]    = useState("");
+  const [clientPhone, setClientPhone] = useState("");
+  const [clientEmail, setClientEmail] = useState("");
+  const [sessionNum,  setSessionNum]  = useState("1");
+  const [packUsed,    setPackUsed]    = useState("");
+  const [startDate,   setStartDate]   = useState("");
+
+  /* Puntajes originales (por categoría, 0-25) */
+  const [prevScores, setPrevScores] = useState({
+    tiempo:"", procesos:"", comunicacion:"", documental:"", decisiones:""
+  });
+
+  /* Respuestas sesión actual */
+  const [answers, setAnswers] = useState({});
+
+  /* Logros y obstáculos */
+  const [logros, setLogros] = useState(["","",""]);
+  const [obstaculos, setObstaculos] = useState({
+    tiempo:"", procesos:"", comunicacion:"", documental:"", decisiones:""
+  });
+  const [manualNotes, setManualNotes] = useState("");
+  const [horasRecuperadas, setHorasRecuperadas] = useState("");
+
+  const [exported,  setExported]  = useState(false);
+  const [showClear, setShowClear] = useState(false);
+
+  const handleChange = useCallback((qid,field,value)=>
+    setAnswers(prev=>({...prev,[qid]:{...prev[qid],[field]:value}})),[]);
+
+  const getCatScore = useCallback((catId)=>{
+    const qs = FOLLOWUP_QUESTIONS[catId];
+    return qs.reduce((s,q)=>s+(answers[q.id]?.puntaje||0),0);
+  },[answers]);
+
+  const catScores = useMemo(()=>Object.fromEntries(CATEGORIES.map(c=>[c.id,getCatScore(c.id)])),[answers]);
+  const totalCurr = Object.values(catScores).reduce((a,b)=>a+b,0);
+
+  const prevTotal = useMemo(()=>{
+    const vals = Object.values(prevScores).map(v=>parseInt(v)||0);
+    return vals.reduce((a,b)=>a+b,0);
+  },[prevScores]);
+
+  const hasPrev = Object.values(prevScores).some(v=>v!=="");
+
+  const catDeltas = useMemo(()=>Object.fromEntries(
+    CATEGORIES.map(c=>[c.id, getDelta(parseInt(prevScores[c.id])||null, catScores[c.id])])
+  ),[prevScores,catScores]);
+
+  const completed = useMemo(()=>
+    Object.values(FOLLOWUP_QUESTIONS).flat().filter(q=>answers[q.id]?.puntaje).length
+  ,[answers]);
+
+  const nextStep = useMemo(()=>{
+    if(completed<10) return null;
+    return getNextStep(prevTotal, totalCurr, catDeltas);
+  },[prevTotal,totalCurr,catDeltas,completed]);
+
+  const improvementPct = hasPrev && prevTotal>0
+    ? Math.round(((totalCurr-prevTotal)/prevTotal)*100)
+    : null;
+
+  const handleClear = ()=>{
+    setClientName("");setIndustry("");setClientPhone("");setClientEmail("");
+    setSessionNum("1");setPackUsed("");setStartDate("");
+    setPrevScores({tiempo:"",procesos:"",comunicacion:"",documental:"",decisiones:""});
+    setAnswers({});setLogros(["","",""]);
+    setObstaculos({tiempo:"",procesos:"",comunicacion:"",documental:"",decisiones:""});
+    setManualNotes("");setHorasRecuperadas("");
+    setShowClear(false);window.scrollTo({top:0,behavior:"smooth"});
+  };
+
+  /* ─── EXPORT ─────────────────────── */
+  const exportExcel = ()=>{
+    const today = new Date().toLocaleDateString("es-AR");
+    const wb = XLSX_LIB.utils.book_new();
+
+    const data = [
+      ["INFORME DE SEGUIMIENTO PCA™"],
+      ["Productividad Consciente Aumentada — Talento Impulsa Consulting"],
+      ["María Soledad Vila  ·  talentoimpulsa@outlook.com  ·  +54 9 11 69580303"],
+      [],
+      ["Cliente / Empresa:", clientName||"—","","Industria:", industry||"—"],
+      ["Celular:", clientPhone||"—","","Email:", clientEmail||"—"],
+      ["Sesión Nº:", sessionNum,"","Fecha:", today],
+      ["Pack utilizado:", packUsed||"—","","Inicio del proceso:", startDate||"—"],
+      [],
+    ];
+
+    if(hasPrev){
+      data.push(["─".repeat(70)],["COMPARACIÓN: DIAGNÓSTICO INICIAL vs SEGUIMIENTO ACTUAL"],["─".repeat(70)]);
+      data.push(["Categoría","Puntaje Inicial","Puntaje Actual","Delta","Evolución"]);
+      CATEGORIES.forEach(cat=>{
+        const p=parseInt(prevScores[cat.id])||0;
+        const c=catScores[cat.id];
+        const d=getDelta(p,c);
+        const dl=deltaLabel(d);
+        data.push([`${cat.icon} ${cat.label}`,p,c,d!=null?(d>=0?`+${d}`:d):"—",dl?`${dl.icon} ${dl.text}`:"—"]);
+      });
+      if(prevTotal>0){
+        const dTot=totalCurr-prevTotal;
+        data.push(["🏆 TOTAL",prevTotal,totalCurr,dTot>=0?`+${dTot}`:dTot,
+          improvementPct!=null?(improvementPct>=0?`+${improvementPct}% de mejora`:`${improvementPct}%`):"—"]);
+      }
+      data.push([]);
+    }
+
+    data.push(["─".repeat(70)],["RESPUESTAS SESIÓN DE SEGUIMIENTO"],["─".repeat(70)]);
+    data.push(["Categoría","Pregunta","Respuesta","Puntaje","Notas"]);
+    CATEGORIES.forEach(cat=>{
+      const qs = FOLLOWUP_QUESTIONS[cat.id];
+      qs.forEach((q,i)=>{
+        const a=answers[q.id]||{};
+        data.push([i===0?`${cat.icon} ${cat.label}`:"",q.text,a.respuesta||"",a.puntaje||"",a.notas||""]);
+      });
+      if(obstaculos[cat.id]){
+        data.push(["","  Obstáculos: "+obstaculos[cat.id],"","",""]);
+      }
+      data.push(["","","","",""]);
+    });
+
+    if(logros.some(l=>l)){
+      data.push(["─".repeat(70)],["LOGROS CONCRETOS IDENTIFICADOS"],["─".repeat(70)]);
+      logros.forEach((l,i)=>{ if(l) data.push([`${i+1}.`,l]); });
+      data.push([]);
+    }
+
+    if(horasRecuperadas){
+      data.push(["Horas recuperadas estimadas por semana:", horasRecuperadas],[] );
+    }
+
+    if(nextStep){
+      data.push(["─".repeat(70)],["PRÓXIMO PASO RECOMENDADO"],["─".repeat(70)]);
+      data.push([nextStep.icon+" "+nextStep.title]);
+      data.push([nextStep.desc]);
+      data.push(["Acción concreta:", nextStep.accion]);
+      data.push([]);
+    }
+
+    if(manualNotes){
+      data.push(["─".repeat(70)],["NOTAS ADICIONALES DEL CONSULTOR"],["─".repeat(70)]);
+      data.push([manualNotes]);
+      data.push([]);
+    }
+
+    data.push(["─".repeat(70)],["Contacto: talentoimpulsa@outlook.com  ·  +54 9 11 69580303  ·  @talentoimpulsaconsulting"]);
+
+    const ws = XLSX_LIB.utils.aoa_to_sheet(data);
+    ws["!cols"]=[{wch:28},{wch:50},{wch:28},{wch:13},{wch:34}];
+    XLSX_LIB.utils.book_append_sheet(wb,ws,"Seguimiento PCA");
+
+    const ws2 = XLSX_LIB.utils.aoa_to_sheet([
+      ["CRITERIOS DE EVALUACIÓN — SESIÓN DE SEGUIMIENTO PCA™"],[],
+      ["ESCALA DE PUNTAJE"],[],
+      ["1 — Crítico","No hubo mejora. La situación es igual o peor que antes."],
+      ["2 — Débil","Mejora mínima. Se intentó pero sin resultados claros."],
+      ["3 — Medio","Mejora parcial. Algunos cambios pero sin sistematizar."],
+      ["4 — Bueno","Mejora clara. El sistema funciona con consistencia."],
+      ["5 — Óptimo","Mejora excelente. Totalmente implementado y automatizado."],
+      [],[],["CRITERIOS DE PRÓXIMO PASO"],[],
+      ["> 80% eficiencia total","Cierre exitoso. Proponer mantenimiento o nuevo desafío."],
+      ["Mejora > 20% y > 65%","Escalar al siguiente nivel de pack."],
+      ["Mejora > 10% y pocas áreas estancadas","Continuar y profundizar."],
+      ["Regresiones en 2+ áreas","Revisión de implementación urgente."],
+      ["Mejora < 10%","Reforzar implementación con sesión práctica."],
+    ]);
+    ws2["!cols"]=[{wch:32},{wch:54}];
+    XLSX_LIB.utils.book_append_sheet(wb,ws2,"Criterios");
+
+    const fname=`Seguimiento_PCA_${(clientName||"Cliente").replace(/\s+/g,"_")}_S${sessionNum}_${today.replace(/\//g,"-")}.xlsx`;
+    XLSX_LIB.writeFile(wb,fname);
+    setExported(true);
+    setTimeout(()=>setExported(false),3000);
+  };
+
+  /* ─── RENDER ─────────────────────── */
+  return (
+    <div style={{minHeight:"100vh",background:"#f0f4fa"}}>
+      {showClear && <ClearModal onConfirm={handleClear} onCancel={()=>setShowClear(false)}/>}
+
+      {/* HEADER */}
+      <div style={{background:`linear-gradient(135deg,${TEAL_DARK} 0%,${TEAL} 65%,#14b8a6 100%)`,
+        padding:"22px 28px 18px",position:"sticky",top:0,zIndex:100,
+        boxShadow:"0 4px 24px rgba(15,118,110,.3)"}}>
+        <div style={{maxWidth:1000,margin:"0 auto"}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12}}>
+            <div>
+              <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:3}}>
+                <div style={{width:3,height:25,background:GOLD,borderRadius:2}}/>
+                <h1 style={{fontSize:21,fontWeight:700,color:"#fff",fontFamily:"'Cormorant Garamond',serif",letterSpacing:.3}}>
+                  Sesión de Seguimiento PCA™
+                </h1>
+              </div>
+              <p style={{fontSize:11.5,color:"#99f6e4",marginLeft:12}}>
+                Medición de evolución · Talento Impulsa Consulting
+              </p>
+            </div>
+            <div style={{display:"flex",alignItems:"center",gap:9}}>
+              <div style={{textAlign:"right",marginRight:2}}>
+                <div style={{fontSize:23,fontWeight:700,color:GOLD,fontFamily:"'Cormorant Garamond',serif"}}>{completed}/25</div>
+                <div style={{fontSize:10,color:"#99f6e4"}}>completadas</div>
+              </div>
+              {hasPrev && improvementPct!==null && (
+                <div style={{textAlign:"center",background:"rgba(255,255,255,.15)",borderRadius:10,padding:"6px 12px"}}>
+                  <div style={{fontSize:20,fontWeight:700,color:improvementPct>=0?"#bbf7d0":"#fecaca",fontFamily:"'Cormorant Garamond',serif"}}>
+                    {improvementPct>=0?"+":""}{improvementPct}%
+                  </div>
+                  <div style={{fontSize:9,color:"#99f6e4",fontWeight:600}}>MEJORA</div>
+                </div>
+              )}
+              <button className="ghost-btn" onClick={()=>setShowClear(true)} style={{padding:"8px 13px",borderRadius:9,border:"1.5px solid rgba(255,255,255,.25)",background:"transparent",color:"rgba(255,255,255,.85)",fontSize:12,fontWeight:600}}>🗂️ Nueva</button>
+              <button className="ghost-btn" onClick={exportExcel} style={{padding:"9px 17px",borderRadius:9,border:"none",background:exported?"#22c55e":GOLD,color:"#0d5c56",fontSize:13,fontWeight:700,whiteSpace:"nowrap"}}>
+                {exported?"✓ Descargado":"⬇ Exportar Excel"}
+              </button>
+            </div>
+          </div>
+          <div style={{marginTop:11,height:3,background:"rgba(255,255,255,.15)",borderRadius:99}}>
+            <div style={{height:"100%",width:`${(completed/25)*100}%`,background:GOLD,borderRadius:99,transition:"width .4s ease"}}/>
+          </div>
+        </div>
+      </div>
+
+      <div style={{maxWidth:1000,margin:"0 auto",padding:"24px 16px 80px"}}>
+
+        {/* DATOS DEL CLIENTE */}
+        <div style={{background:"#fff",borderRadius:14,padding:"20px 24px",marginBottom:20,
+          boxShadow:"0 2px 12px rgba(0,0,0,.06)",border:"1px solid #e2e8f0"}}>
+          <h2 style={{margin:"0 0 14px",fontSize:11.5,fontWeight:700,color:TEAL,textTransform:"uppercase",letterSpacing:1.2}}>
+            Datos del Cliente
+          </h2>
+          <div style={{display:"flex",gap:13,flexWrap:"wrap",marginBottom:12}}>
+            {[
+              {l:"Nombre / Empresa",v:clientName,s:setClientName,p:"Ej: Empresa S.A.",f:"1 1 200px"},
+              {l:"Industria",v:industry,s:setIndustry,p:"Ej: Tecnología",f:"1 1 140px"},
+            ].map(f=>(
+              <div key={f.l} style={{flex:f.f}}>
+                <label style={{fontSize:10,color:"#94a3b8",fontWeight:700,letterSpacing:.5,textTransform:"uppercase",display:"block",marginBottom:5}}>{f.l}</label>
+                <input value={f.v} onChange={e=>f.s(e.target.value)} placeholder={f.p} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:14,color:"#1e293b"}}/>
+              </div>
+            ))}
+            <div style={{flex:"0 0 120px"}}>
+              <label style={{fontSize:10,color:"#94a3b8",fontWeight:700,letterSpacing:.5,textTransform:"uppercase",display:"block",marginBottom:5}}>Fecha hoy</label>
+              <input value={new Date().toLocaleDateString("es-AR")} disabled style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:14,color:"#94a3b8",background:"#fafafa"}}/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:13,flexWrap:"wrap",marginBottom:12}}>
+            <div style={{flex:"1 1 180px"}}>
+              <label style={{fontSize:10,color:"#94a3b8",fontWeight:700,letterSpacing:.5,textTransform:"uppercase",display:"block",marginBottom:5}}>📱 Celular</label>
+              <input value={clientPhone} onChange={e=>setClientPhone(e.target.value)} placeholder="+54 9 11 12345678" type="tel" style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:14,color:"#1e293b"}}/>
+            </div>
+            <div style={{flex:"2 1 220px"}}>
+              <label style={{fontSize:10,color:"#94a3b8",fontWeight:700,letterSpacing:.5,textTransform:"uppercase",display:"block",marginBottom:5}}>✉️ Email</label>
+              <input value={clientEmail} onChange={e=>setClientEmail(e.target.value)} placeholder="contacto@empresa.com" type="email" style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:14,color:"#1e293b"}}/>
+            </div>
+          </div>
+          <div style={{display:"flex",gap:13,flexWrap:"wrap"}}>
+            <div style={{flex:"0 0 130px"}}>
+              <label style={{fontSize:10,color:"#94a3b8",fontWeight:700,letterSpacing:.5,textTransform:"uppercase",display:"block",marginBottom:5}}>Sesión Nº</label>
+              <select value={sessionNum} onChange={e=>setSessionNum(e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:14,color:"#1e293b",background:"#fff"}}>
+                {["1","2","3","4","5","6+"].map(n=><option key={n} value={n}>Sesión {n}</option>)}
+              </select>
+            </div>
+            <div style={{flex:"1 1 180px"}}>
+              <label style={{fontSize:10,color:"#94a3b8",fontWeight:700,letterSpacing:.5,textTransform:"uppercase",display:"block",marginBottom:5}}>Pack utilizado</label>
+              <select value={packUsed} onChange={e=>setPackUsed(e.target.value)} style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:14,color:"#1e293b",background:"#fff"}}>
+                <option value="">Seleccionar...</option>
+                <option>Pack Autonomía PCA™</option>
+                <option>Pack Digital Equipo</option>
+                <option>Mentoría Estratégica 1:1</option>
+                <option>Consultoría Institucional PCA™</option>
+              </select>
+            </div>
+            <div style={{flex:"1 1 150px"}}>
+              <label style={{fontSize:10,color:"#94a3b8",fontWeight:700,letterSpacing:.5,textTransform:"uppercase",display:"block",marginBottom:5}}>Inicio del proceso</label>
+              <input value={startDate} onChange={e=>setStartDate(e.target.value)} placeholder="Ej: 15/01/2025" style={{width:"100%",padding:"9px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:14,color:"#1e293b"}}/>
+            </div>
+          </div>
+        </div>
+
+        {/* PUNTAJES ORIGINALES */}
+        <div style={{background:"#fff",borderRadius:14,padding:"20px 24px",marginBottom:20,
+          boxShadow:"0 2px 12px rgba(0,0,0,.06)",border:`1.5px solid ${TEAL}33`}}>
+          <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",flexWrap:"wrap",gap:10,marginBottom:14}}>
+            <div>
+              <h2 style={{fontSize:13,fontWeight:700,color:TEAL,textTransform:"uppercase",letterSpacing:1.2,marginBottom:4}}>
+                Puntajes del Diagnóstico Inicial
+              </h2>
+              <p style={{fontSize:12,color:"#64748b"}}>Ingresá los puntajes por categoría del Excel de auditoría original (0-25 por categoría).</p>
+            </div>
+            <span style={{fontSize:11,color:"#94a3b8",fontStyle:"italic"}}>Opcional — habilita la comparación visual</span>
+          </div>
+          <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+            {CATEGORIES.map(cat=>(
+              <div key={cat.id} style={{flex:"1 1 140px",minWidth:130}}>
+                <label style={{fontSize:10.5,color:cat.color,fontWeight:700,display:"block",marginBottom:6}}>
+                  {cat.icon} {cat.label}
+                </label>
+                <input
+                  type="number" min="0" max="25"
+                  value={prevScores[cat.id]}
+                  onChange={e=>setPrevScores(p=>({...p,[cat.id]:e.target.value}))}
+                  placeholder="0–25"
+                  style={{width:"100%",padding:"9px 12px",borderRadius:8,border:`1.5px solid ${cat.color}44`,
+                    fontSize:16,fontWeight:700,color:cat.color,textAlign:"center",
+                    background:prevScores[cat.id]?cat.light:"#fff"}}
+                />
+              </div>
+            ))}
+          </div>
+          {hasPrev && (
+            <div style={{marginTop:12,padding:"8px 14px",background:TEAL_LIGHT,borderRadius:8,fontSize:12.5,color:TEAL_DARK,fontWeight:600}}>
+              ✓ Puntaje total inicial: <strong>{prevTotal}/125</strong> — La comparación aparecerá en resultados.
+            </div>
+          )}
+        </div>
+
+        {/* NAV PILLS */}
+        <div style={{display:"flex",gap:7,flexWrap:"wrap",marginBottom:18}}>
+          {CATEGORIES.map(cat=>{
+            const filled = FOLLOWUP_QUESTIONS[cat.id].filter(q=>answers[q.id]?.puntaje).length;
+            return (
+              <a key={cat.id} href={`#cat-${cat.id}`} className="nav-pill" style={{
+                display:"flex",alignItems:"center",gap:6,padding:"7px 12px",
+                borderRadius:20,background:"#fff",border:`2px solid ${cat.color}1A`,
+                color:cat.color,fontSize:11.5,fontWeight:600,textDecoration:"none",whiteSpace:"nowrap",
+              }}>
+                <span>{cat.icon}</span><span>{cat.label}</span>
+                <span style={{background:cat.color,color:"#fff",borderRadius:99,padding:"1px 7px",fontSize:10.5}}>{filled}/5</span>
+              </a>
+            );
+          })}
+        </div>
+
+        {/* CATEGORÍAS */}
+        {CATEGORIES.map(cat=>(
+          <div key={cat.id} id={`cat-${cat.id}`} style={{marginBottom:24}}>
+            <div style={{background:cat.light,borderRadius:"14px 14px 0 0",padding:"13px 19px",
+              display:"flex",alignItems:"center",gap:10,borderBottom:`3px solid ${cat.color}`}}>
+              <span style={{fontSize:19}}>{cat.icon}</span>
+              <div style={{flex:1}}>
+                <h2 style={{fontSize:15,fontWeight:700,color:cat.color,fontFamily:"'Cormorant Garamond',serif"}}>{cat.label}</h2>
+                <p style={{fontSize:11,color:"#64748b"}}>
+                  Puntaje actual: {catScores[cat.id]}/25
+                  {prevScores[cat.id] && ` · Inicial: ${prevScores[cat.id]}/25`}
+                  {catDeltas[cat.id]!==null && (() => { const dl=deltaLabel(catDeltas[cat.id]); return dl?<span style={{marginLeft:6,fontWeight:700,color:dl.color}}>{dl.icon} {dl.text}</span>:null; })()}
+                </p>
+              </div>
+            </div>
+            <div style={{background:"#f8fafc",padding:"13px 4px",borderRadius:"0 0 14px 14px",border:"1px solid #e2e8f0",borderTop:"none"}}>
+              {FOLLOWUP_QUESTIONS[cat.id].map(q=>(
+                <QuestionCard key={q.id} question={q} catColor={cat.color} catLight={cat.light} answers={answers} onChange={handleChange}/>
+              ))}
+              {/* Obstáculos por categoría */}
+              <div style={{margin:"4px 4px 4px",background:"#fff",borderRadius:10,padding:"13px 16px",border:"1.5px dashed #e2e8f0"}}>
+                <label style={{fontSize:10.5,color:"#94a3b8",fontWeight:700,letterSpacing:.5,textTransform:"uppercase",display:"block",marginBottom:6}}>
+                  🧱 Obstáculos o dificultades en esta categoría
+                </label>
+                <textarea rows={2} value={obstaculos[cat.id]} onChange={e=>setObstaculos(p=>({...p,[cat.id]:e.target.value}))}
+                  placeholder="¿Qué impidió implementar mejor en esta área? ¿Hubo resistencia, falta de tiempo, confusión?"
+                  style={{width:"100%",padding:"8px 10px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12.5,resize:"vertical",color:"#374151",lineHeight:1.55}}/>
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {/* RESULTADOS COMPARATIVOS */}
+        {completed>=5 && (
+          <div className="fade-in" style={{background:"#fff",borderRadius:14,padding:"24px",marginBottom:18,
+            boxShadow:"0 2px 12px rgba(0,0,0,.06)",border:"1px solid #e2e8f0"}}>
+            <h2 style={{margin:"0 0 20px",fontSize:16,fontWeight:700,color:"#1a2e5c",fontFamily:"'Cormorant Garamond',serif"}}>
+              {hasPrev?"📊 Evolución por Categoría":"📊 Resultados Actuales"}
+            </h2>
+            {CATEGORIES.map(cat=>(
+              <ComparisonBar
+                key={cat.id}
+                label={cat.label}
+                icon={cat.icon}
+                prev={prevScores[cat.id]?parseInt(prevScores[cat.id]):null}
+                curr={catScores[cat.id]}
+                color={cat.color}
+              />
+            ))}
+
+            {/* Total */}
+            <div style={{marginTop:18,padding:"14px 18px",borderRadius:10,
+              background: totalCurr/125>=0.7?"#f0fdf4":totalCurr/125>=0.4?"#fffbeb":"#fef2f2",
+              border:`2px solid ${totalCurr/125>=0.7?"#16a34a":totalCurr/125>=0.4?"#d97706":"#dc2626"}33`,
+              display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:700,color:"#1e293b"}}>Puntaje Total Actual</div>
+                {hasPrev && <div style={{fontSize:11.5,color:"#64748b",marginTop:2}}>Inicial: {prevTotal}/125</div>}
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:14}}>
+                {hasPrev && improvementPct!==null && (
+                  <div style={{textAlign:"center",background: improvementPct>=0?"#dcfce7":"#fee2e2",borderRadius:9,padding:"6px 14px"}}>
+                    <div style={{fontSize:20,fontWeight:700,color:improvementPct>=0?"#16a34a":"#dc2626",fontFamily:"'Cormorant Garamond',serif"}}>
+                      {improvementPct>=0?"+":""}{improvementPct}%
+                    </div>
+                    <div style={{fontSize:9,fontWeight:700,color:improvementPct>=0?"#16a34a":"#dc2626"}}>DE MEJORA</div>
+                  </div>
+                )}
+                <div style={{textAlign:"center"}}>
+                  <div style={{fontSize:24,fontWeight:700,color:TEAL,fontFamily:"'Cormorant Garamond',serif"}}>{totalCurr}/125</div>
+                  <div style={{fontSize:10,color:"#64748b"}}>{Math.round((totalCurr/125)*100)}% eficiencia</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* LOGROS CONCRETOS */}
+        <div style={{background:"#fff",borderRadius:14,padding:"22px 24px",marginBottom:18,
+          boxShadow:"0 2px 12px rgba(0,0,0,.06)",border:"1px solid #e2e8f0"}}>
+          <h2 style={{margin:"0 0 8px",fontSize:15,fontWeight:700,color:"#1a2e5c",fontFamily:"'Cormorant Garamond',serif"}}>
+            🏅 Logros Concretos del Cliente
+          </h2>
+          <p style={{fontSize:12,color:"#64748b",marginBottom:14}}>Pedile al cliente que verbalice sus victorias. Que lo diga en voz alta consolida el cambio y refuerza el valor de la consultoría.</p>
+          {[0,1,2].map(i=>(
+            <div key={i} style={{display:"flex",gap:10,alignItems:"center",marginBottom:10}}>
+              <div style={{width:28,height:28,borderRadius:"50%",background:TEAL,color:"#fff",
+                display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:700,flexShrink:0}}>
+                {i+1}
+              </div>
+              <input value={logros[i]} onChange={e=>{const n=[...logros];n[i]=e.target.value;setLogros(n);}}
+                placeholder={["¿Qué es lo que más mejoró en tu trabajo diario?","¿Qué herramienta o sistema fue el más útil?","¿Qué le dirías a otro profesional sobre este proceso?"][i]}
+                style={{flex:1,padding:"9px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:13,color:"#1e293b"}}/>
+            </div>
+          ))}
+          <div style={{display:"flex",alignItems:"center",gap:12,marginTop:14,padding:"12px 16px",background:TEAL_LIGHT,borderRadius:10}}>
+            <span style={{fontSize:13,color:TEAL_DARK,fontWeight:600}}>⏱ Horas recuperadas estimadas por semana:</span>
+            <input value={horasRecuperadas} onChange={e=>setHorasRecuperadas(e.target.value)}
+              placeholder="Ej: 6 horas" style={{width:120,padding:"7px 12px",borderRadius:8,border:`1.5px solid ${TEAL}44`,
+                fontSize:14,fontWeight:700,color:TEAL,textAlign:"center",background:"#fff"}}/>
+          </div>
+        </div>
+
+        {/* PRÓXIMO PASO */}
+        {nextStep && (
+          <div className="fade-in shimmer-card" style={{background:nextStep.bg,border:`2px solid ${nextStep.color}33`,
+            borderRadius:14,padding:"22px 24px",marginBottom:18}}>
+            <h2 style={{margin:"0 0 14px",fontSize:16,fontWeight:700,color:"#1a2e5c",fontFamily:"'Cormorant Garamond',serif"}}>
+              🧭 Próximo Paso Recomendado
+            </h2>
+            <div style={{display:"flex",alignItems:"flex-start",gap:14}}>
+              <span style={{fontSize:32,flexShrink:0}}>{nextStep.icon}</span>
+              <div>
+                <div style={{fontSize:16,fontWeight:700,color:nextStep.color,fontFamily:"'Cormorant Garamond',serif",marginBottom:7}}>
+                  {nextStep.title}
+                </div>
+                <p style={{fontSize:13,color:"#374151",lineHeight:1.65,marginBottom:12}}>{nextStep.desc}</p>
+                <div style={{display:"inline-flex",alignItems:"center",gap:8,background:nextStep.color,
+                  color:"#fff",borderRadius:9,padding:"8px 16px",fontSize:12.5,fontWeight:600}}>
+                  ▶ {nextStep.accion}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* NOTAS DEL CONSULTOR */}
+        <div style={{background:"#fff",borderRadius:14,padding:"22px 24px",marginBottom:20,
+          boxShadow:"0 2px 12px rgba(0,0,0,.06)",border:"1px solid #e2e8f0"}}>
+          <h2 style={{margin:"0 0 9px",fontSize:15,fontWeight:700,color:"#1a2e5c",fontFamily:"'Cormorant Garamond',serif"}}>
+            ✏️ Notas Adicionales del Consultor
+          </h2>
+          <p style={{fontSize:11.5,color:"#94a3b8",marginBottom:10}}>Acuerdos, compromisos del cliente, contexto relevante para la próxima sesión o cualquier cosa que quieras registrar.</p>
+          <textarea rows={5} value={manualNotes} onChange={e=>setManualNotes(e.target.value)}
+            placeholder="Ej: El cliente implementó los prompts de comunicación pero todavía no sistematizó la delegación. Se comprometió a usar la matriz de decisiones durante la próxima semana. Próxima sesión acordada para el 15/03..."
+            style={{width:"100%",padding:"11px 12px",borderRadius:8,border:"1.5px solid #e2e8f0",fontSize:12.5,resize:"vertical",color:"#1e293b",lineHeight:1.6}}/>
+        </div>
+
+        {/* BOTONES FINALES */}
+        <div style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
+          <button className="ghost-btn" onClick={()=>setShowClear(true)} style={{padding:"11px 26px",borderRadius:11,border:"2px solid #e2e8f0",background:"#fff",color:"#64748b",fontSize:14,fontWeight:600}}>
+            🗂️ Nueva Sesión
+          </button>
+          <button className="ghost-btn" onClick={exportExcel} style={{padding:"12px 38px",borderRadius:11,border:"none",background:`linear-gradient(135deg,${TEAL_DARK},${TEAL})`,color:"#fff",fontSize:14,fontWeight:700,boxShadow:`0 4px 20px ${TEAL}44`}}>
+            ⬇ Exportar Informe de Seguimiento
+          </button>
+        </div>
+        <p style={{textAlign:"center",marginTop:9,fontSize:11,color:"#94a3b8"}}>
+          El Excel incluye evolución comparativa · logros · obstáculos · próximo paso recomendado
+        </p>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
